@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+.eggs/
+dist/
+build/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Fit outputs
+*.r
+*.ed
+*.ned
+*.beta
+*.nbeta
+*.fitParams
+*.fitParamsStats
+*.png
+
+# Data files (add specific files explicitly if needed)
+*.xrr
+!si_ps.xrr
+
+# Misc
+*.pdf
+!foofit_manual.pdf
+*.html

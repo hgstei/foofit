@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "foofit"
+version = "0.1.0"
+description = "X-ray reflectivity fitting using Parratt formalism"
+requires-python = ">=3.8"
+dependencies = [
+    "numpy",
+    "scipy",
+    "matplotlib",
+    "lmfit",
+    "prettytable",
+    "tqdm",
+    "corner",
+    "joblib",
+]
