@@ -27,4 +27,10 @@ build/
 # Misc
 *.pdf
 !foofit_manual.pdf
+!foofit_manual_historic.pdf
 *.html
+
+# Local development
+.claude/
+Untitled*.ipynb
+xrr_fitting_v71.ipynb

@@ -5,12 +5,12 @@
 #affiliation     : Institute for a sustainable Hydrogen Economy (IHE-1), Forschungszentrum Jülich &
 #                  Institute of Physical Chemistry, RWTH Aachen University
 #e-mail          : h.steinrueck@fz-juelich.de
-#date            : 08/18/2018
+#date            : 08/18/2018 (updated 02/2026)
 #version         : 0.2.4
 #usage           : best to use with jupyter notebook
 #notes           : I would call this a beta version, needs to be tested by colleagues
 #                  The code was cross-checked with genx
-#python_version  : written and tested 3.5.4.
+#python_version  : written for 3.5.4, tested on 3.7+
 
 ### to-do: potentially export fit-report to output file
 ### to-do: work on emcee
