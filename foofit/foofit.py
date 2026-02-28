@@ -4,7 +4,7 @@
 #author          : Hans-Georg Steinrueck
 #e-mail          : hgs@slac.stanford.edu, hansgeorgsteinrueck@gmail.com
 #date            : 08/18/2018
-#version         : 0.2.2
+#version         : 0.2.3
 #usage           : best to use with jupyter notebook
 #notes           : I would call this a beta version, needs to be tested by colleagues
 #                  The code was cross-checked with genx
