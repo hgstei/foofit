@@ -16,6 +16,7 @@ setup(
         'corner',
         'joblib',
         'astropy',
+        'numdifftools',
     ],
     package_data={'foofit': ['*.xrr']},
 )
