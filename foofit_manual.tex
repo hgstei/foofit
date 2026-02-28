@@ -1,0 +1,339 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{hyperref}
+\usepackage{geometry}
+\usepackage{amsmath}
+\usepackage{array}
+\usepackage{enumitem}
+
+\geometry{margin=2.5cm}
+\setlength{\parskip}{6pt}
+\setlength{\parindent}{0pt}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    urlcolor=blue,
+    citecolor=blue
+}
+
+\title{\textit{foofit}: X-ray Reflectivity Fitting Software}
+\author{
+  H.-G. Steinr\"uck\textsuperscript{1,*} \\[4pt]
+  \small \textsuperscript{1}IHE-1, Forschungszentrum J\"ulich \& RWTH Aachen \\
+  \small *\,\href{mailto:hansgeorgsteinrueck@gmail.com}{hansgeorgsteinrueck@gmail.com}
+}
+\date{February 2026}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This document serves as the manual for \textit{foofit}, a pip-installable Python library
+for X-ray reflectivity (XRR) fitting. \textit{foofit} implements the Parratt recursion
+formalism~\cite{Parratt1954} and a refraction-corrected master formula, using
+\texttt{lmfit}~\cite{Newville2014} for optimization and Monte Carlo confidence analysis.
+\end{abstract}
+
+% ----------------------------------------------------------------
+\section{Introduction}
+% ----------------------------------------------------------------
+
+\textit{foofit} is a Python library for fitting X-ray reflectivity (XRR) data. It implements
+two formalisms for computing theoretical XRR curves: the recursive Parratt formalism and a
+refraction-corrected master formula. Optimization is handled via the \texttt{Minimizer}
+function from \texttt{lmfit}~\cite{Newville2014}, and Monte Carlo resampling~\cite{Heinrich2009}
+is used for parameter confidence analysis.
+
+The code was originally developed by Michael Klimczak and Hans-Georg Steinr\"uck at the
+Crystallography and Structural Physics institute of the Friedrich-Alexander Universit\"at
+Erlangen-N\"urnberg (based on \textit{pyRefFit}), and later refactored into a
+pip-installable package.
+
+Source code and issue tracker: \url{https://github.com/hgstei/foofit}
+
+% ----------------------------------------------------------------
+\section{Installation}
+% ----------------------------------------------------------------
+
+Install directly from GitHub:
+\begin{verbatim}
+pip install git+https://github.com/hgstei/foofit.git
+\end{verbatim}
+
+All dependencies are installed automatically:
+\texttt{numpy}, \texttt{scipy}, \texttt{matplotlib}, \texttt{lmfit}, \texttt{prettytable},
+\texttt{tqdm}, \texttt{corner}, \texttt{joblib}, \texttt{numdifftools}, \texttt{astropy}.
+
+For interactive, zoomable plots in Jupyter, additionally install \texttt{ipympl}:
+\begin{verbatim}
+pip install ipympl
+\end{verbatim}
+
+% ----------------------------------------------------------------
+\section{Quick Start}
+% ----------------------------------------------------------------
+
+\begin{verbatim}
+from foofit import *
+
+# bundled example dataset: polystyrene on silicon
+si_ps_xrr = example_data
+
+# set up lmfit Parameters
+params = Parameters()
+params.add('numbLayers', value=1,    vary=False)
+params.add('wavelength', value=1.0,  vary=False)
+params.add('I0',         value=1,    vary=False)
+params.add('bkg',        value=0,    vary=False)
+params.add('pre_rho',    value=0,    vary=False)
+params.add('pre_beta',   value=0,    vary=False)
+params.add('layer0_dd',  value=220, min=150, max=300, vary=True)
+params.add('layer0_rho', value=0.25, min=0.1, max=0.4, vary=True)
+params.add('layer0_sig', value=5,   min=0.5, max=15,  vary=True)
+params.add('layer0_beta',value=0,    vary=False)
+params.add('sub_rho',    value=0.71, vary=False)
+params.add('sub_sig',    value=4,   min=0.5, max=10,  vary=True)
+params.add('sub_beta',   value=0,    vary=False)
+
+# single fit
+performFit(si_ps_xrr, params, fitFunc=xrr_parratt_fit,
+           method='powell', qmin=0.0, qmax=0.4, plot=2,
+           outputName='my_sample', weight=2)
+
+# Monte Carlo error analysis
+params2 = loadParams('my_sample_<timestamp>_fit.fitParams',
+                     lowLim=0.3, highLim=0.3)
+performFit_mc(si_ps_xrr, params2, fitFunc=xrr_parratt_fit,
+              method='powell', qmin=0.0, qmax=0.4,
+              outputName='my_sample', weight=2, NN=250)
+
+# corner plot of MC parameter distributions
+analyze_mc('my_sample_<timestamp>_fit_mc.fitParams')
+\end{verbatim}
+
+A full worked example is provided in \texttt{example.ipynb}.
+
+\subsection*{Interactive Plots in Jupyter}
+
+Uncomment the appropriate line at the top of the notebook:
+\begin{verbatim}
+# %matplotlib widget    # JupyterLab (requires: pip install ipympl)
+# %matplotlib notebook  # classic Jupyter Notebook
+\end{verbatim}
+\textbf{Note:} Do not add comments on the same line as a \texttt{\%matplotlib}
+magic command --- IPython does not treat \texttt{\#} as a comment in magic arguments.
+Put the comment on the next line instead.
+
+% ----------------------------------------------------------------
+\section{Parameters Convention}
+% ----------------------------------------------------------------
+
+All fitting functions take an \texttt{lmfit} \texttt{Parameters} object. The parameter
+names listed below must be followed exactly. Layer index $n$ starts at~0 for the topmost
+layer (closest to the ambient medium). Mathematical constraints between parameters can be
+defined as described in the lmfit documentation~\cite{lmfit_constraints}.
+
+\begin{center}
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{lp{9.5cm}}
+\hline\hline
+\textbf{Parameter} & \textbf{Description} \\
+\hline
+\texttt{numbLayers}        & Number of layers between ambient and substrate (integer, fixed) \\
+\texttt{wavelength}        & X-ray wavelength in \AA{} (fixed) \\
+\texttt{I0}                & Intensity scale factor \\
+\texttt{bkg}               & Background offset \\
+\texttt{pre\_rho}          & Ambient medium electron density (0 for air/vacuum) \\
+\texttt{pre\_beta}         & Ambient medium absorption constant (0 for air/vacuum) \\
+\texttt{layer\{n\}\_dd}   & Thickness of layer $n$ in \AA{} \\
+\texttt{layer\{n\}\_rho}  & Electron density of layer $n$ in e$^-$/\AA$^3$ \\
+\texttt{layer\{n\}\_sig}  & Interfacial roughness of layer $n$ in \AA{} \\
+\texttt{layer\{n\}\_beta} & Absorption constant of layer $n$ \\
+\texttt{sub\_rho}          & Substrate electron density in e$^-$/\AA$^3$ \\
+\texttt{sub\_sig}          & Substrate roughness in \AA{} \\
+\texttt{sub\_beta}         & Substrate absorption constant \\
+\hline\hline
+\end{tabular}
+\end{center}
+
+% ----------------------------------------------------------------
+\section{Functions}
+% ----------------------------------------------------------------
+
+\subsection*{\texttt{xrr\_parratt\_calc(params, qq, doConv=0)}}
+
+Calculates XRR using the recursive Parratt formalism~\cite{Parratt1954}. Takes an
+\texttt{lmfit} \texttt{Parameters} object, a q-array in \AA$^{-1}$, and optionally a
+Gaussian convolution width \texttt{doConv} (sigma in \AA$^{-1}$, \texttt{0} to disable).
+Returns the reflectivity array. Cross-checked against GenX~\cite{Bjorck2007}.
+
+\subsection*{\texttt{xrr\_master\_refractionCorrected\_calc(params, qq, doConv=0)}}
+
+Same interface as \texttt{xrr\_parratt\_calc}, but uses the refraction-corrected master formula.
+
+\subsection*{\texttt{xrr\_parratt\_fit(params, qq, data, weight, ee, doConv=0)}}
+
+Residual function for use with \texttt{lmfit}. Returns the weighted difference between
+model (Parratt) and data. Passed as \texttt{fitFunc} to \texttt{performFit} and
+\texttt{performFit\_mc}.
+
+\subsection*{\texttt{xrr\_master\_refractionCorrected\_fit(params, qq, data, weight, ee, doConv=0)}}
+
+Same as \texttt{xrr\_parratt\_fit} but using the refraction-corrected master formula.
+
+\subsection*{\texttt{xrr\_eDens(params, zz)}}
+
+Calculates the electron density profile (in e$^-$/\AA$^3$) including interfacial roughness
+as a function of depth $z$ in \AA.
+
+\subsection*{\texttt{xrr\_eDens\_zeroRoughness(params, zz)}}
+
+Same as \texttt{xrr\_eDens} but with sharp (roughness-free) interfaces.
+
+\subsection*{\texttt{xrr\_beta(params, zz)}}
+
+Calculates the absorption ($\beta$) profile as a function of depth $z$ in \AA.
+
+\subsection*{\texttt{xrr\_beta\_zeroRoughness(params, zz)}}
+
+Same as \texttt{xrr\_beta} but with sharp (roughness-free) interfaces.
+
+\subsection*{\texttt{performFit(\ldots)}}
+
+\begin{verbatim}
+performFit(dataFile, params, fitFunc=xrr_parratt_fit,
+           method='differential_evolution',
+           qmin=0, qmax=1, plot=1, report=True, save=True,
+           outputName="foo", weight=0, rrfPlot=False, doConv=0)
+\end{verbatim}
+
+Performs a single fit and optionally plots and saves results.
+
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{dataFile}: Path to data file. Column~1 must be $q$ in \AA$^{-1}$,
+        column~2 must be intensity $I$. Additional columns are ignored.
+  \item \texttt{fitFunc}: \texttt{xrr\_parratt\_fit} (default) or
+        \texttt{xrr\_master\_refractionCorrected\_fit}.
+  \item \texttt{method}: Optimization algorithm from \texttt{lmfit}.
+        \texttt{'powell'} and \texttt{'differential\_evolution'} work best in practice.
+  \item \texttt{qmin}, \texttt{qmax}: Fitted q-range in \AA$^{-1}$.
+  \item \texttt{plot}: \texttt{1}~plots XRR and fit only; \texttt{2}~additionally saves
+        all output files (see below).
+  \item \texttt{report}: Print fit report to console.
+  \item \texttt{save}: Save report plot to file.
+  \item \texttt{outputName}: Base name for all output files.
+  \item \texttt{weight}: Figure-of-merit definition.
+        \texttt{0}: $(\mathrm{data}-\mathrm{model})/\mathrm{data}$;
+        \texttt{1}: $\mathrm{data}-\mathrm{model}$;
+        \texttt{2}: $\log(\mathrm{data})-\log(\mathrm{model})$;
+        \texttt{4}: $(\mathrm{data}-\mathrm{model})/\mathrm{error}$.
+  \item \texttt{rrfPlot}: If \texttt{True}, display Fresnel-normalized reflectivity
+        ($R \cdot q^4$).
+  \item \texttt{doConv}: Gaussian convolution width (sigma in \AA$^{-1}$) for instrumental
+        resolution smearing. \texttt{0} disables convolution.
+\end{itemize}
+
+Output files saved when \texttt{plot=2} (all prefixed \texttt{outputName\_timestamp\_fit}):
+\texttt{.fitParams},
+\texttt{.ed} (electron density),
+\texttt{.ned} (electron density, no roughness),
+\texttt{.beta},
+\texttt{.nbeta} (absorption, no roughness),
+\texttt{.r} (reflectivity model curve).
+
+\subsection*{\texttt{performFit\_mc(\ldots)}}
+
+\begin{verbatim}
+performFit_mc(dataFile, params, fitFunc=xrr_parratt_fit,
+              method='differential_evolution',
+              qmin=0, qmax=1, plot=1, report=True,
+              outputName="foo", weight=0, rrfPlot=False,
+              doConv=0, NN=10)
+\end{verbatim}
+
+Performs Monte Carlo error analysis~\cite{Heinrich2009} by generating \texttt{NN}
+noise-perturbed datasets and fitting each independently. Fits are parallelized using
+\texttt{joblib}~\cite{joblib}. Always saves output files and creates a report figure.
+Similar in approach to MOTOFIT~\cite{Nelson2006}.
+
+Parameters are identical to \texttt{performFit}, with the addition of:
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{NN}: Number of Monte Carlo iterations (default~10;
+        100--500 recommended for reliable statistics).
+\end{itemize}
+
+\subsection*{\texttt{loadParams(parameterFilename, lowLim=0.1, highLim=0.1)}}
+
+Loads a \texttt{.fitParams} file saved by \texttt{performFit} back into an \texttt{lmfit}
+\texttt{Parameters} object. \texttt{lowLim} and \texttt{highLim} define lower and upper
+parameter bounds as a fraction of the fitted value (e.g., \texttt{0.3} gives $\pm30\,\%$
+bounds), used as limits in the subsequent Monte Carlo fit.
+
+\subsection*{\texttt{analyze\_mc(file, bins=20)}}
+
+Generates a corner plot~\cite{ForemanMackey2016} from the \texttt{.fitParams} file saved
+by \texttt{performFit\_mc}, showing marginal parameter distributions and pairwise correlations.
+
+\subsection*{\texttt{example\_data}}
+
+Module-level string variable containing the absolute path to the bundled example dataset
+(\texttt{si\_ps.xrr}): a polystyrene thin film on a silicon substrate.
+
+% ----------------------------------------------------------------
+\section{Physical Constants}
+% ----------------------------------------------------------------
+
+The classical electron radius $r_e$ and the critical-$q$ prefactor are computed from
+\texttt{astropy} constants at import time and re-exported by \texttt{from foofit import *}:
+
+\begin{verbatim}
+# r_e not directly available in astropy < 4;
+# derived from Thomson cross-section: sigma_T = (8*pi/3) * r_e^2
+r_e_AA = sqrt(3 * sigma_T / (8*pi)) * 1e10  # = 2.81794e-5  Angstrom
+qc_factor = 4 * sqrt(r_e_AA * pi)           # = 0.037636    Angstrom^-1
+\end{verbatim}
+
+% ----------------------------------------------------------------
+\begin{thebibliography}{9}
+% ----------------------------------------------------------------
+
+\bibitem{Parratt1954}
+  L.G. Parratt,
+  Physical Review \textbf{95}, 359 (1954).
+
+\bibitem{Newville2014}
+  M. Newville et al.,
+  \textit{LMFIT: Non-Linear Least-Square Minimization and Curve-Fitting for Python} (2014),
+  \url{https://lmfit.github.io/lmfit-py/}.
+
+\bibitem{lmfit_constraints}
+  \textit{lmfit constraints documentation},
+  \url{https://lmfit.github.io/lmfit-py/constraints.html}.
+
+\bibitem{Bjorck2007}
+  M. Bj\"orck and G. Andersson,
+  Journal of Applied Crystallography \textbf{40}, 1174 (2007).
+
+\bibitem{Heinrich2009}
+  F. Heinrich, T. Ng, D.J. Vanderah, P. Shekhar, M. Mihailescu, H. Nanda, and M. L\"osche,
+  Langmuir \textbf{25}, 4219 (2009).
+
+\bibitem{Nelson2006}
+  A. Nelson,
+  Journal of Applied Crystallography \textbf{39}, 273 (2006).
+
+\bibitem{joblib}
+  \textit{joblib: running Python functions as pipeline jobs},
+  \url{https://joblib.readthedocs.io/}.
+
+\bibitem{ForemanMackey2016}
+  D. Foreman-Mackey,
+  Journal of Open Source Software \textbf{1}, 24 (2016).
+
+\end{thebibliography}
+
+\end{document}
