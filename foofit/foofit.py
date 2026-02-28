@@ -501,7 +501,7 @@ def performFit(dataFile, params, fitFunc=xrr_parratt_fit, method='differential_e
 
         ax1.annotate("q_min = %s\nq_max = %s" % (qmin, qmax), xy=(0.8, 0.8), xycoords='axes fraction', fontsize=8)
 
-        ax2.set_ylabel("$\mathregular{\\rho}}$ (e/\u00c5\u00b3)")
+        ax2.set_ylabel("$\mathregular{\\rho}$ (e/\u00c5\u00b3)")
         ax2.set_xlabel("z (\u00c5)")
 
         DD = 0
@@ -603,7 +603,7 @@ def performFit_mc(dataFile, params, fitFunc=xrr_parratt_fit, method='differentia
 
     ax1.annotate("q_min = %s\nq_max = %s" % (qmin, qmax), xy=(0.8, 0.8), xycoords='axes fraction', fontsize=8)
 
-    ax2.set_ylabel("$\mathregular{\\rho}}$ (e/\u00c5\u00b3)")
+    ax2.set_ylabel("$\mathregular{\\rho}$ (e/\u00c5\u00b3)")
     ax2.set_xlabel("z (\u00c5)")
 
     ts = time.time()
