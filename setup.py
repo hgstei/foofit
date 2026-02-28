@@ -15,5 +15,6 @@ setup(
         'tqdm',
         'corner',
         'joblib',
+        'astropy',
     ],
 )

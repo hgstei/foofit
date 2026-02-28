@@ -46,6 +46,13 @@ import corner
 
 from joblib import Parallel, delayed
 
+from astropy.constants import r_e as r_e_si
+
+# Classical electron radius in Angstroms (from astropy)
+r_e_AA = r_e_si.value * 1e10
+# Critical q prefactor: qc = qc_factor * sqrt(delta_rho)  [rho in e/Å³, qc in Å⁻¹]
+qc_factor = 4 * np.sqrt(r_e_AA * np.pi)
+
 
 ###########################################################################################################################################################
 ###########################################################################################################################################################
@@ -113,8 +120,7 @@ def xrr_parratt_calc(params, qq, doConv=0):
 
     # Fixed: use params['wavelength'].value (was hardcoded to 1.033)
     wavelength = params['wavelength'].value
-    # Fixed: use np.pi (was magic number 3.1415)
-    qs = np.sqrt(np.subtract(*np.meshgrid((qq**2), (8 * 2 * np.pi * 2.82e-5 * rho
+    qs = np.sqrt(np.subtract(*np.meshgrid((qq**2), (8 * 2 * np.pi * r_e_AA * rho
                                                     - 1j * 32 * np.pi**2 * beta * 0.00000001 / wavelength**2))))
 
     # create empty arrays of the right shape for r, p; one row per interface, one column per q-value
@@ -169,7 +175,7 @@ def xrr_master_refractionCorrected_calc(params, qq, doConv=0):
     rr = 0j
     depth = 0
 
-    qc = 0.0375 * np.sqrt(sub_rho - pre_rho)
+    qc = qc_factor * np.sqrt(sub_rho - pre_rho)
 
     qq_p = np.sqrt(qq**2 - qc**2)
     rrf = np.abs((qq - qq_p) / (qq + qq_p))**2
@@ -417,16 +423,16 @@ def performFit(dataFile, params, fitFunc=xrr_parratt_fit, method='differential_e
         ax1.yaxis.set_ticks_position('both'); ax1.xaxis.set_ticks_position('both')
 
         if rrfPlot:
-            rrf = abs((qq - sqrt(qq**2 - (0.0375*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)) /
-                      (qq + np.sqrt(qq**2 - (0.0375*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)))**2
+            rrf = abs((qq - sqrt(qq**2 - (qc_factor*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)) /
+                      (qq + np.sqrt(qq**2 - (qc_factor*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)))**2
             ax1.semilogy(qq, ii/rrf, linestyle='none', marker='o', color='b', zorder=-32, markersize=3)
             if ebar == 1:
                 ax1.errorbar(qq, ii/rrf, yerr=ee/rrf, linestyle='None', color='b', capsize=0, elinewidth=1)
-            rrf = abs((qq_plot - np.sqrt(qq_plot**2 - (0.0375*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)) /
-                      (qq_plot + np.sqrt(qq_plot**2 - (0.0375*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)))**2
+            rrf = abs((qq_plot - np.sqrt(qq_plot**2 - (qc_factor*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)) /
+                      (qq_plot + np.sqrt(qq_plot**2 - (qc_factor*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)))**2
             ax1.semilogy(qq_plot, ii_plot/rrf, color='k', linewidth=1)
-            rrf = abs((qq_cut - np.sqrt(qq_cut**2 - (0.0375*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)) /
-                      (qq_cut + np.sqrt(qq_cut**2 - (0.0375*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)))**2
+            rrf = abs((qq_cut - np.sqrt(qq_cut**2 - (qc_factor*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)) /
+                      (qq_cut + np.sqrt(qq_cut**2 - (qc_factor*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)))**2
             ax1.semilogy(qq_cut, final/rrf, color='r', linewidth=1)
         else:
             ax1.semilogy(qq, ii, linestyle='none', marker='o', color='b', zorder=-32, markersize=3)
@@ -481,16 +487,16 @@ def performFit(dataFile, params, fitFunc=xrr_parratt_fit, method='differential_e
             ax.set_facecolor(LBLU)
 
         if rrfPlot:
-            rrf = abs((qq - sqrt(qq**2 - (0.0375*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)) /
-                      (qq + np.sqrt(qq**2 - (0.0375*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)))**2
+            rrf = abs((qq - sqrt(qq**2 - (qc_factor*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)) /
+                      (qq + np.sqrt(qq**2 - (qc_factor*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)))**2
             ax1.semilogy(qq, ii/rrf, linestyle='none', marker='o', color='b', zorder=-32, markersize=3)
             if ebar == 1:
                 ax1.errorbar(qq, ii/rrf, yerr=ee/rrf, linestyle='None', color='b', capsize=0, elinewidth=1)
-            rrf = abs((qq_plot - np.sqrt(qq_plot**2 - (0.0375*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)) /
-                      (qq_plot + np.sqrt(qq_plot**2 - (0.0375*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)))**2
+            rrf = abs((qq_plot - np.sqrt(qq_plot**2 - (qc_factor*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)) /
+                      (qq_plot + np.sqrt(qq_plot**2 - (qc_factor*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)))**2
             ax1.semilogy(qq_plot, ii_plot/rrf, color='k', linewidth=1)
-            rrf = abs((qq_cut - np.sqrt(qq_cut**2 - (0.0375*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)) /
-                      (qq_cut + np.sqrt(qq_cut**2 - (0.0375*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)))**2
+            rrf = abs((qq_cut - np.sqrt(qq_cut**2 - (qc_factor*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)) /
+                      (qq_cut + np.sqrt(qq_cut**2 - (qc_factor*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)))**2
             ax1.semilogy(qq_cut, final/rrf, color='r', linewidth=1)
         else:
             ax1.semilogy(qq, ii, linestyle='none', marker='o', color='b', zorder=-32, markersize=3)
@@ -667,16 +673,16 @@ def performFit_mc(dataFile, params, fitFunc=xrr_parratt_fit, method='differentia
 
         if rrfPlot:
             if nn == 0:
-                rrf = abs((qq - sqrt(qq**2 - (0.0375*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)) /
-                          (qq + np.sqrt(qq**2 - (0.0375*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)))**2
+                rrf = abs((qq - sqrt(qq**2 - (qc_factor*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)) /
+                          (qq + np.sqrt(qq**2 - (qc_factor*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)))**2
                 ax1.semilogy(qq, ii/rrf, linestyle='none', marker='o', color='b', zorder=-32, markersize=3)
                 if ebar == 1:
                     ax1.errorbar(qq, ii/rrf, yerr=ee/rrf, linestyle='None', color='b', capsize=0, elinewidth=1)
-            rrf = abs((qq_plot - np.sqrt(qq_plot**2 - (0.0375*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)) /
-                      (qq_plot + np.sqrt(qq_plot**2 - (0.0375*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)))**2
+            rrf = abs((qq_plot - np.sqrt(qq_plot**2 - (qc_factor*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)) /
+                      (qq_plot + np.sqrt(qq_plot**2 - (qc_factor*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)))**2
             ax1.semilogy(qq_plot, ii_plot[nn, :]/rrf, color='k', linewidth=1)
-            rrf = abs((qq_cut - np.sqrt(qq_cut**2 - (0.0375*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)) /
-                      (qq_cut + np.sqrt(qq_cut**2 - (0.0375*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)))**2
+            rrf = abs((qq_cut - np.sqrt(qq_cut**2 - (qc_factor*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)) /
+                      (qq_cut + np.sqrt(qq_cut**2 - (qc_factor*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)))**2
             ax1.semilogy(qq_cut, final[nn, :]/rrf, color='r', linewidth=1)
         else:
             if nn == 0:
