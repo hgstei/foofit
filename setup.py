@@ -17,4 +17,5 @@ setup(
         'joblib',
         'astropy',
     ],
+    package_data={'foofit': ['*.xrr']},
 )
