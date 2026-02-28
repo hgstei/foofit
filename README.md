@@ -12,7 +12,6 @@ pip install git+https://github.com/hgstei/foofit.git
 
 ```python
 from foofit import *
-from lmfit import Parameters
 
 # use the bundled example dataset (polystyrene on silicon)
 si_ps_xrr = example_data
@@ -42,6 +41,9 @@ params2 = loadParams('my_sample_<timestamp>_fit.fitParams', lowLim=0.3, highLim=
 performFit_mc(si_ps_xrr, params2, fitFunc=xrr_parratt_fit,
               method='powell', qmin=0.0, qmax=0.4,
               outputName='my_sample', weight=2, NN=250)
+
+# corner plot of MC parameter distributions
+analyze_mc('my_sample_<timestamp>_fit_mc.fitParams')
 ```
 
 See `example.ipynb` for a full worked example.
@@ -98,5 +100,5 @@ Classical electron radius and critical-q prefactor are computed from astropy con
 
 ```python
 r_e_AA   # classical electron radius in Å  (from astropy sigma_T)
-qc_factor  # 4 * sqrt(r_e_AA * pi)  [Å⁻¹]
+qc_factor  # 4 * sqrt(r_e_AA * pi)
 ```
