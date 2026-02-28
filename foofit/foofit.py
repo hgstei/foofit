@@ -1,8 +1,10 @@
 #title           : foofit.py
 #description     : functions for calculating and fits reflectivity data with parratt formalism or refraction corrected master formula
-#                  code based on pyRefFit by Michael Klimczak and Hans-Georg Steinrueck
-#author          : Hans-Georg Steinrueck
-#e-mail          : hgs@slac.stanford.edu, hansgeorgsteinrueck@gmail.com
+#                  code based on pyRefFit by Michael Klimczak and Hans-Georg Steinrück
+#author          : Hans-Georg Steinrück
+#affiliation     : Institute for a sustainable Hydrogen Economy (IHE-1), Forschungszentrum Jülich &
+#                  Institute of Physical Chemistry, RWTH Aachen University
+#e-mail          : h.steinrueck@fz-juelich.de
 #date            : 08/18/2018
 #version         : 0.2.4
 #usage           : best to use with jupyter notebook
