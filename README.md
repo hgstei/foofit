@@ -46,7 +46,7 @@ performFit_mc(si_ps_xrr, params2, fitFunc=xrr_parratt_fit,
 analyze_mc('my_sample_<timestamp>_fit_mc.fitParams')
 ```
 
-See `example.ipynb` for a full worked example.
+See `example.ipynb` for a full worked example and [foofit_manual.pdf](https://github.com/hgstei/foofit/blob/master/foofit_manual.pdf) for the full manual.
 
 ## Interactive plots in Jupyter
 
