@@ -51,9 +51,13 @@ See `example.ipynb` for a full worked example.
 Uncomment the appropriate line at the top of your notebook:
 
 ```python
-# %matplotlib widget    # JupyterLab (requires: pip install ipympl)
-# %matplotlib notebook  # classic Jupyter Notebook
+# %matplotlib widget
+# (JupyterLab — requires: pip install ipympl)
+# %matplotlib notebook
+# (classic Jupyter Notebook)
 ```
+
+Note: do not add comments on the same line as a `%matplotlib` magic command — IPython does not treat `#` as a comment in magic arguments.
 
 ## Parameters convention
 
