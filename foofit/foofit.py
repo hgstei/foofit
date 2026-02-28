@@ -46,10 +46,11 @@ import corner
 
 from joblib import Parallel, delayed
 
-from astropy.constants import r_e as r_e_si
+from astropy.constants import sigma_T
 
-# Classical electron radius in Angstroms (from astropy)
-r_e_AA = r_e_si.value * 1e10
+# Classical electron radius in Angstroms, derived from Thomson cross-section via astropy:
+#   sigma_T = (8*pi/3) * r_e^2  =>  r_e = sqrt(3*sigma_T / (8*pi))
+r_e_AA = np.sqrt(3 * sigma_T.si.value / (8 * np.pi)) * 1e10
 # Critical q prefactor: qc = qc_factor * sqrt(delta_rho)  [rho in e/Å³, qc in Å⁻¹]
 qc_factor = 4 * np.sqrt(r_e_AA * np.pi)
 
