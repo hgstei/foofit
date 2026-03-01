@@ -25,12 +25,10 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import scipy.special
 import scipy.ndimage
-import re
-
 import datetime
 import time
 
-from lmfit import minimize, Minimizer, Parameters, Parameter, report_fit, fit_report
+from lmfit import Minimizer, Parameters, report_fit, fit_report
 
 from prettytable import PrettyTable
 from tqdm import tqdm
@@ -303,7 +301,7 @@ def performFit(dataFile, params, fitFunc=xrr_parratt_fit, method='differential_e
     try:
         ee = data[:,2]
         ebar = 1
-    except:
+    except (IndexError, ValueError):
         ee = np.zeros(len(ii))
         ebar = 0
 
@@ -494,7 +492,7 @@ def performFit_mc(dataFile, params, fitFunc=xrr_parratt_fit, method='differentia
     try:
         ee = data[:,2]
         ebar = 1
-    except:
+    except (IndexError, ValueError):
         ee = np.zeros(len(ii))
         ebar = 0
 
@@ -593,16 +591,19 @@ def performFit_mc(dataFile, params, fitFunc=xrr_parratt_fit, method='differentia
 
     # Plotting loop
     result = results[-1]  # use last result for rrf parameters
+    if rrfPlot:
+        rrf_qq      = _fresnel_rrf(qq,      result.params)
+        rrf_qq_plot = _fresnel_rrf(qq_plot, result.params)
+        rrf_qq_cut  = _fresnel_rrf(qq_cut,  result.params)
     for nn in tqdm(range(NN), desc="Plotting"):
 
         if rrfPlot:
             if nn == 0:
-                rrf = _fresnel_rrf(qq, result.params)
-                ax1.semilogy(qq, ii/rrf, linestyle='none', marker='o', color='b', zorder=-32, markersize=3)
+                ax1.semilogy(qq, ii/rrf_qq, linestyle='none', marker='o', color='b', zorder=-32, markersize=3)
                 if ebar == 1:
-                    ax1.errorbar(qq, ii/rrf, yerr=ee/rrf, linestyle='None', color='b', capsize=0, elinewidth=1)
-            ax1.semilogy(qq_plot, ii_plot[nn, :]/_fresnel_rrf(qq_plot, result.params), color='k', linewidth=1)
-            ax1.semilogy(qq_cut, final[nn, :]/_fresnel_rrf(qq_cut, result.params), color='r', linewidth=1)
+                    ax1.errorbar(qq, ii/rrf_qq, yerr=ee/rrf_qq, linestyle='None', color='b', capsize=0, elinewidth=1)
+            ax1.semilogy(qq_plot, ii_plot[nn, :]/rrf_qq_plot, color='k', linewidth=1)
+            ax1.semilogy(qq_cut, final[nn, :]/rrf_qq_cut, color='r', linewidth=1)
         else:
             if nn == 0:
                 ax1.semilogy(qq, ii, linestyle='none', marker='o', color='b', zorder=-32, markersize=3)
