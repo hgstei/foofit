@@ -110,18 +110,14 @@ def xrr_parratt_calc(params, qq, doConv=0):
 
     # Fixed: use params['wavelength'].value (was hardcoded to 1.033)
     wavelength = params['wavelength'].value
-    qs = np.sqrt(np.subtract(*np.meshgrid((qq**2), (8 * 2 * np.pi * r_e_AA * rho
-                                                    - 1j * 32 * np.pi**2 * beta * 0.00000001 / wavelength**2))))
+    # Optimized: broadcasting instead of meshgrid (avoids two intermediate arrays)
+    kz_sq = 8 * 2 * np.pi * r_e_AA * rho - 1j * 32 * np.pi**2 * beta * 0.00000001 / wavelength**2
+    qs = np.sqrt(qq**2 - kz_sq[:, np.newaxis])
 
-    # create empty arrays of the right shape for r, p; one row per interface, one column per q-value
-    r = np.zeros((numInterfaces, qq.shape[0]), dtype=complex)
-    p = np.copy(r)
-
-    # calculate reflective indexes for each interface, phase terms for each layer
-    for ii in np.arange(0, numInterfaces):
-        # *****NEW***** ### qs[ii]* qs[ii+1] instead of qs[ii]**2: refraction corrected roughness; doesn't make a big difference
-        r[ii] = (qs[ii] - qs[ii+1]) / (qs[ii] + qs[ii+1]) * np.exp(-sig[ii]**2 * qs[ii] * qs[ii+1] / 2)
-        p[ii] = np.exp(1j * qs[ii] * dd[ii])
+    # Optimized: vectorized over interfaces (was a Python loop)
+    # refraction-corrected roughness: qs[ii]*qs[ii+1] instead of qs[ii]**2
+    r = (qs[:-1] - qs[1:]) / (qs[:-1] + qs[1:]) * np.exp(-sig[:, np.newaxis]**2 * qs[:-1] * qs[1:] / 2)
+    p = np.exp(1j * qs[:-1] * dd[:, np.newaxis])
 
     # recursively build the reflective index of the entire system from the bottom up
     rr = r[numInterfaces-1]
