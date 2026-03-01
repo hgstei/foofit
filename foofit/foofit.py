@@ -64,35 +64,18 @@ example_data = pkg_resources.resource_filename('foofit', 'si_ps.xrr')
 ###########################################################################################################################################################
 ###########################################################################################################################################################
 ###########################################################################################################################################################
-def smear_scipy_int(qq, rr, params, sig=0.002/2.35):
+def smear_scipy_int(qq, rr, sig):
     '''
-    function  that convolutes any array set with gaussian of width sig
-    array does not need to be equally spaced
-    "expands" array to ten times minimum point density, then calculates ratio before and after convolution, which is interpolated on original array
-    I call this oversampling
+    Convolves rr(qq) with a Gaussian of width sig (sigma in q units).
+    Works for arbitrarily spaced qq by oversampling to a uniform fine grid,
+    convolving, then interpolating back onto the original grid.
     '''
-    ### difference between datapoints
-    dq = diff(qq)
-    ### makes sure there is no overlapping datapoints
-    dq_nonZero = dq[dq != 0]
-
-    ### oversample array
-    qq_exp = np.arange(np.min(qq), np.max(qq), np.min(dq_nonZero)/10)
-    ### calculate oversample xrr
-    rr_exp = xrr_parratt_calc(params, qq_exp, doConv=0)
-
-    ### convolute
-    rr_exp_smear = scipy.ndimage.gaussian_filter1d(rr_exp, sig/(qq_exp[1]-qq_exp[0]))
-
-    ### calculate ratio
-    scaling = rr_exp/rr_exp_smear
-    ### interpolate onto original array
-    scaling_int = np.interp(qq, qq_exp, scaling)
-
-    ### calculate convoluted original array
-    rr_smear = rr/scaling_int
-
-    return rr_smear
+    dq = np.diff(qq)
+    dq_fine = np.min(dq[dq != 0]) / 10
+    qq_fine = np.arange(np.min(qq), np.max(qq) + dq_fine, dq_fine)
+    rr_fine = np.interp(qq_fine, qq, rr)
+    rr_fine_smeared = scipy.ndimage.gaussian_filter1d(rr_fine, sig / dq_fine)
+    return np.interp(qq, qq_fine, rr_fine_smeared)
 
 
 ###########################################################################################################################################################
@@ -131,7 +114,7 @@ def xrr_parratt_calc(params, qq, doConv=0):
                                                     - 1j * 32 * np.pi**2 * beta * 0.00000001 / wavelength**2))))
 
     # create empty arrays of the right shape for r, p; one row per interface, one column per q-value
-    r = np.zeros((numInterfaces, qq.shape[0]), dtype=np.complex64)
+    r = np.zeros((numInterfaces, qq.shape[0]), dtype=complex)
     p = np.copy(r)
 
     # calculate reflective indexes for each interface, phase terms for each layer
@@ -149,7 +132,7 @@ def xrr_parratt_calc(params, qq, doConv=0):
     rr = I0 * np.abs(rr)**2 + bkg
 
     if doConv != 0:
-        rr = smear_scipy_int(qq, rr, params, sig=doConv)
+        rr = smear_scipy_int(qq, rr, doConv)
 
     return rr
 
@@ -179,24 +162,28 @@ def xrr_master_refractionCorrected_calc(params, qq, doConv=0):
         layers.append((rho[nn], dd[nn], sig[nn]))
     layers.append((sub_rho, 0, sub_sig))
 
-    rr = 0j
-    depth = 0
-
     qc = qc_factor * np.sqrt(sub_rho - pre_rho)
 
-    qq_p = np.sqrt(qq**2 - qc**2)
+    qq_p = np.sqrt(qq**2 - qc**2 + 0j)   # complex: handles below-critical-angle (evanescent) region
     rrf = np.abs((qq - qq_p) / (qq + qq_p))**2
 
-    for nn in range(0, len(layers)-1):
-        depth += layers[nn][1]
-        rr += (layers[nn][0] - layers[nn+1][0]) * np.exp(1j*qq_p*depth) * np.exp(-qq**2 * layers[nn+1][2]**2 / 2)
+    # Vectorized over interfaces: compute all terms simultaneously
+    n_int = len(layers) - 1
+    rho_l    = np.array([layers[nn][0]   for nn in range(n_int)])
+    rho_next = np.array([layers[nn+1][0] for nn in range(n_int)])
+    dd_l     = np.array([layers[nn][1]   for nn in range(n_int)])
+    sig_l    = np.array([layers[nn+1][2] for nn in range(n_int)])
 
-    rr /= (sub_rho - pre_rho)
+    depths    = np.cumsum(dd_l)                                    # (n_int,)
+    delta_rho = rho_l - rho_next                                   # (n_int,)
+    phase     = np.exp(1j * np.outer(depths, qq_p))                # (n_int, len(qq))
+    rough     = np.exp(-0.5 * np.outer(sig_l**2, qq**2))          # (n_int, len(qq))
+    rr        = np.dot(delta_rho, phase * rough) / (sub_rho - pre_rho)
 
     rr = I0 * abs(rr)**2 * rrf + bkg
 
     if doConv != 0:
-        rr = smear_scipy_int(qq, rr, params, sig=doConv)
+        rr = smear_scipy_int(qq, rr, doConv)
 
     return rr
 
@@ -260,10 +247,10 @@ def xrr_eDens(params, zz):
 
     numInterfaces = numbLayers + 1
 
-    # sum up density contributions each layer
-    density = zz*0 + rho[0]
-    for ii in np.arange(0, numInterfaces):
-        density += (rho[ii + 1] - rho[ii]) * (1 + scipy.special.erf((zz-ZZ[ii]) / np.sqrt(2) / sig[ii])) / 2
+    # Vectorized over interfaces
+    delta_rho = rho[1:] - rho[:-1]                                             # (numInterfaces,)
+    z_norm = (zz[:, np.newaxis] - ZZ[np.newaxis, :]) / (np.sqrt(2) * sig)     # (len(zz), numInterfaces)
+    density = rho[0] + np.sum(delta_rho * (1 + scipy.special.erf(z_norm)) / 2, axis=1)
 
     return density
 
@@ -290,10 +277,10 @@ def xrr_eDens_zeroRoughness(params, zz):
 
     numInterfaces = numbLayers + 1
 
-    # sum up density contributions each layer
-    density = zz*0 + rho[0]
-    for ii in np.arange(0, numInterfaces):
-        density += (rho[ii + 1] - rho[ii]) * (1 + scipy.special.erf((zz-ZZ[ii]) / np.sqrt(2) / sig[ii])) / 2
+    # Vectorized over interfaces
+    delta_rho = rho[1:] - rho[:-1]
+    z_norm = (zz[:, np.newaxis] - ZZ[np.newaxis, :]) / (np.sqrt(2) * sig)
+    density = rho[0] + np.sum(delta_rho * (1 + scipy.special.erf(z_norm)) / 2, axis=1)
 
     return density
 
@@ -319,12 +306,10 @@ def xrr_beta(params, zz):
 
     numInterfaces = numbLayers + 1
 
-    # sum up absorption contributions each layer
-    absorption = zz*0 + beta[0]
-    for ii in np.arange(0, numInterfaces):
-        absorption += (beta[ii + 1] - beta[ii]) * (1 + scipy.special.erf((zz-ZZ[ii]) / np.sqrt(2) / sig[ii])) / 2
-
-    absorption *= 0.00000001
+    # Vectorized over interfaces
+    delta_beta = beta[1:] - beta[:-1]
+    z_norm = (zz[:, np.newaxis] - ZZ[np.newaxis, :]) / (np.sqrt(2) * sig)
+    absorption = (beta[0] + np.sum(delta_beta * (1 + scipy.special.erf(z_norm)) / 2, axis=1)) * 0.00000001
 
     return absorption
 
@@ -351,12 +336,11 @@ def xrr_beta_zeroRoughness(params, zz):
 
     numInterfaces = numbLayers + 1
 
-    # sum up absorption contributions each layer
-    absorption = zz*0 + beta[0]
-    for ii in np.arange(0, numInterfaces):
-        absorption += (beta[ii + 1] - beta[ii]) * (1 + scipy.special.erf((zz-ZZ[ii]) / np.sqrt(2) / sig[ii])) / 2
+    # Vectorized over interfaces
+    delta_beta = beta[1:] - beta[:-1]
+    z_norm = (zz[:, np.newaxis] - ZZ[np.newaxis, :]) / (np.sqrt(2) * sig)
+    absorption = (beta[0] + np.sum(delta_beta * (1 + scipy.special.erf(z_norm)) / 2, axis=1)) * 0.00000001
 
-    absorption *= 0.00000001
     return absorption
 
 
