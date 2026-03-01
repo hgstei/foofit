@@ -19,37 +19,27 @@
 ## document steps in formulas
 ###
 
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
-from pylab import *
 import scipy.special
 import scipy.ndimage
-
-from scipy import optimize
-from scipy.special import *
-import cmath
 import re
 
 import datetime
 import time
 
-import lmfit
-from lmfit import Model, Parameters
 from lmfit import minimize, Minimizer, Parameters, Parameter, report_fit, fit_report
 
 from prettytable import PrettyTable
-import random
 from tqdm import tqdm
-
-import timeit
 
 import corner
 
 from joblib import Parallel, delayed
 
 from astropy.constants import sigma_T
-import pkg_resources
 
 # Classical electron radius in Angstroms, derived from Thomson cross-section via astropy:
 #   sigma_T = (8*pi/3) * r_e^2  =>  r_e = sqrt(3*sigma_T / (8*pi))
@@ -58,7 +48,7 @@ r_e_AA = np.sqrt(3 * sigma_T.si.value / (8 * np.pi)) * 1e10
 qc_factor = 4 * np.sqrt(r_e_AA * np.pi)
 
 # Path to the bundled example data file
-example_data = pkg_resources.resource_filename('foofit', 'si_ps.xrr')
+example_data = os.path.join(os.path.dirname(__file__), 'si_ps.xrr')
 
 
 ###########################################################################################################################################################
@@ -78,6 +68,13 @@ def smear_scipy_int(qq, rr, sig):
     return np.interp(qq, qq_fine, rr_fine_smeared)
 
 
+def _fresnel_rrf(qq, params):
+    """Fresnel reflectivity normalization factor R_F for rrfPlot."""
+    qc = qc_factor * np.sqrt(params['sub_rho'].value - params['pre_rho'].value)
+    qq_p = np.sqrt(qq**2 - qc**2 + 0j)
+    return np.abs((qq - qq_p) / (qq + qq_p))**2
+
+
 ###########################################################################################################################################################
 ###########################################################################################################################################################
 ###########################################################################################################################################################
@@ -90,17 +87,17 @@ def xrr_parratt_calc(params, qq, doConv=0):
 
     # Optimized: list comprehensions instead of concatenate loops
     rho = np.array([params['pre_rho'].value] +
-                   [params['layer%s_rho' % nn].value for nn in range(numbLayers)] +
+                   [params[f'layer{nn}_rho'].value for nn in range(numbLayers)] +
                    [params['sub_rho'].value])
 
     beta = np.array([params['pre_beta'].value] +
-                    [params['layer%s_beta' % nn].value for nn in range(numbLayers)] +
+                    [params[f'layer{nn}_beta'].value for nn in range(numbLayers)] +
                     [params['sub_beta'].value])
 
-    sig = np.array([params['layer%s_sig' % nn].value for nn in range(numbLayers)] +
+    sig = np.array([params[f'layer{nn}_sig'].value for nn in range(numbLayers)] +
                    [params['sub_sig'].value])
 
-    dd = np.array([0] + [params['layer%s_dd' % nn].value for nn in range(numbLayers)])
+    dd = np.array([0] + [params[f'layer{nn}_dd'].value for nn in range(numbLayers)])
 
     numInterfaces = numbLayers + 1
 
@@ -111,7 +108,7 @@ def xrr_parratt_calc(params, qq, doConv=0):
     # Fixed: use params['wavelength'].value (was hardcoded to 1.033)
     wavelength = params['wavelength'].value
     # Optimized: broadcasting instead of meshgrid (avoids two intermediate arrays)
-    kz_sq = 8 * 2 * np.pi * r_e_AA * rho - 1j * 32 * np.pi**2 * beta * 0.00000001 / wavelength**2
+    kz_sq = 8 * 2 * np.pi * r_e_AA * rho - 1j * 32 * np.pi**2 * beta * 1e-8 / wavelength**2
     qs = np.sqrt(qq**2 - kz_sq[:, np.newaxis])
 
     # Optimized: vectorized over interfaces (was a Python loop)
@@ -122,7 +119,7 @@ def xrr_parratt_calc(params, qq, doConv=0):
     # recursively build the reflective index of the entire system from the bottom up
     rr = r[numInterfaces-1]
 
-    for ii in np.arange(0, numInterfaces-1)[::-1]:
+    for ii in range(numInterfaces-2, -1, -1):
         rr = (r[ii] + rr * p[ii+1]) / (1 + r[ii] * rr * p[ii+1])
 
     rr = I0 * np.abs(rr)**2 + bkg
@@ -149,9 +146,9 @@ def xrr_master_refractionCorrected_calc(params, qq, doConv=0):
     numbLayers = int(params['numbLayers'].value)
 
     # Optimized: list comprehensions + Fixed: was sig[nn-1] (off-by-one bug)
-    rho = np.array([params['layer%s_rho' % nn].value for nn in range(numbLayers)])
-    dd = np.array([params['layer%s_dd' % nn].value for nn in range(numbLayers)])
-    sig = np.array([params['layer%s_sig' % nn].value for nn in range(numbLayers)])
+    rho = np.array([params[f'layer{nn}_rho'].value for nn in range(numbLayers)])
+    dd = np.array([params[f'layer{nn}_dd'].value for nn in range(numbLayers)])
+    sig = np.array([params[f'layer{nn}_sig'].value for nn in range(numbLayers)])
 
     layers = [(pre_rho, 0, 0)]
     for nn in range(numbLayers):
@@ -176,7 +173,7 @@ def xrr_master_refractionCorrected_calc(params, qq, doConv=0):
     rough     = np.exp(-0.5 * np.outer(sig_l**2, qq**2))          # (n_int, len(qq))
     rr        = np.dot(delta_rho, phase * rough) / (sub_rho - pre_rho)
 
-    rr = I0 * abs(rr)**2 * rrf + bkg
+    rr = I0 * np.abs(rr)**2 * rrf + bkg
 
     if doConv != 0:
         rr = smear_scipy_int(qq, rr, doConv)
@@ -191,13 +188,13 @@ def xrr_parratt_fit(params, qq, data, weight, ee, doConv=0):
     # Optimized: delegate to _calc instead of duplicating physics code
     rr = xrr_parratt_calc(params, qq, doConv=doConv)
 
-    if weight == 0:  # normalized
+    if weight == 0:        # normalized
         res = (rr - data) / data
-    if weight == 1:  # linear
+    elif weight == 1:      # linear
         res = (rr - data)
-    if weight == 2:  # log
+    elif weight == 2:      # log
         res = np.log(rr) - np.log(data)
-    if weight == 3:  # error-weighted
+    elif weight == 4:      # error-weighted
         res = (rr - data) / ee
 
     return res
@@ -210,13 +207,13 @@ def xrr_master_refractionCorrected_fit(params, qq, data, weight, ee, doConv=0):
     # Optimized: delegate to _calc instead of duplicating physics code
     rr = xrr_master_refractionCorrected_calc(params, qq, doConv=doConv)
 
-    if weight == 0:  # normalized
+    if weight == 0:        # normalized
         res = (rr - data) / data
-    if weight == 1:  # linear
+    elif weight == 1:      # linear
         res = (rr - data)
-    if weight == 2:  # log
+    elif weight == 2:      # log
         res = np.log(rr) - np.log(data)
-    if weight == 3:  # error-weighted
+    elif weight == 4:      # error-weighted
         res = (rr - data) / ee
 
     return res
@@ -225,23 +222,24 @@ def xrr_master_refractionCorrected_fit(params, qq, data, weight, ee, doConv=0):
 ###########################################################################################################################################################
 ###########################################################################################################################################################
 ###########################################################################################################################################################
-def xrr_eDens(params, zz):
+def xrr_eDens(params, zz, zero_roughness=False):
 
     numbLayers = int(params['numbLayers'].value)
 
     # Optimized: list comprehensions instead of concatenate loops
     rho = np.array([params['pre_rho'].value] +
-                   [params['layer%s_rho' % nn].value for nn in range(numbLayers)] +
+                   [params[f'layer{nn}_rho'].value for nn in range(numbLayers)] +
                    [params['sub_rho'].value])
 
-    sig = np.array([params['layer%s_sig' % nn].value for nn in range(numbLayers)] +
+    sig = np.array([params[f'layer{nn}_sig'].value for nn in range(numbLayers)] +
                    [params['sub_sig'].value])
 
-    dd = np.array([0] + [params['layer%s_dd' % nn].value for nn in range(numbLayers)])
+    if zero_roughness:
+        sig = np.full_like(sig, 0.0001)
+
+    dd = np.array([0] + [params[f'layer{nn}_dd'].value for nn in range(numbLayers)])
 
     ZZ = np.cumsum(dd)
-
-    numInterfaces = numbLayers + 1
 
     # Vectorized over interfaces
     delta_rho = rho[1:] - rho[:-1]                                             # (numInterfaces,)
@@ -251,93 +249,42 @@ def xrr_eDens(params, zz):
     return density
 
 
-###########################################################################################################################################################
-###########################################################################################################################################################
-###########################################################################################################################################################
 def xrr_eDens_zeroRoughness(params, zz):
-
-    numbLayers = int(params['numbLayers'].value)
-
-    # Optimized: list comprehensions instead of concatenate loops
-    rho = np.array([params['pre_rho'].value] +
-                   [params['layer%s_rho' % nn].value for nn in range(numbLayers)] +
-                   [params['sub_rho'].value])
-
-    sig = np.array([params['layer%s_sig' % nn].value for nn in range(numbLayers)] +
-                   [params['sub_sig'].value])
-    sig = 0 * sig + 0.0001
-
-    dd = np.array([0] + [params['layer%s_dd' % nn].value for nn in range(numbLayers)])
-
-    ZZ = np.cumsum(dd)
-
-    numInterfaces = numbLayers + 1
-
-    # Vectorized over interfaces
-    delta_rho = rho[1:] - rho[:-1]
-    z_norm = (zz[:, np.newaxis] - ZZ[np.newaxis, :]) / (np.sqrt(2) * sig)
-    density = rho[0] + np.sum(delta_rho * (1 + scipy.special.erf(z_norm)) / 2, axis=1)
-
-    return density
+    return xrr_eDens(params, zz, zero_roughness=True)
 
 
 ###########################################################################################################################################################
 ###########################################################################################################################################################
 ###########################################################################################################################################################
-def xrr_beta(params, zz):
+def xrr_beta(params, zz, zero_roughness=False):
 
     numbLayers = int(params['numbLayers'].value)
 
     # Optimized: list comprehensions instead of concatenate loops
     beta = np.array([params['pre_beta'].value] +
-                    [params['layer%s_beta' % nn].value for nn in range(numbLayers)] +
+                    [params[f'layer{nn}_beta'].value for nn in range(numbLayers)] +
                     [params['sub_beta'].value])
 
-    sig = np.array([params['layer%s_sig' % nn].value for nn in range(numbLayers)] +
+    sig = np.array([params[f'layer{nn}_sig'].value for nn in range(numbLayers)] +
                    [params['sub_sig'].value])
 
-    dd = np.array([0] + [params['layer%s_dd' % nn].value for nn in range(numbLayers)])
+    if zero_roughness:
+        sig = np.full_like(sig, 0.0001)
+
+    dd = np.array([0] + [params[f'layer{nn}_dd'].value for nn in range(numbLayers)])
 
     ZZ = np.cumsum(dd)
-
-    numInterfaces = numbLayers + 1
 
     # Vectorized over interfaces
     delta_beta = beta[1:] - beta[:-1]
     z_norm = (zz[:, np.newaxis] - ZZ[np.newaxis, :]) / (np.sqrt(2) * sig)
-    absorption = (beta[0] + np.sum(delta_beta * (1 + scipy.special.erf(z_norm)) / 2, axis=1)) * 0.00000001
+    absorption = (beta[0] + np.sum(delta_beta * (1 + scipy.special.erf(z_norm)) / 2, axis=1)) * 1e-8
 
     return absorption
 
 
-###########################################################################################################################################################
-###########################################################################################################################################################
-###########################################################################################################################################################
 def xrr_beta_zeroRoughness(params, zz):
-
-    numbLayers = int(params['numbLayers'].value)
-
-    # Optimized: list comprehensions instead of concatenate loops
-    beta = np.array([params['pre_beta'].value] +
-                    [params['layer%s_beta' % nn].value for nn in range(numbLayers)] +
-                    [params['sub_beta'].value])
-
-    sig = np.array([params['layer%s_sig' % nn].value for nn in range(numbLayers)] +
-                   [params['sub_sig'].value])
-    sig = 0 * sig + 0.0001
-
-    dd = np.array([0] + [params['layer%s_dd' % nn].value for nn in range(numbLayers)])
-
-    ZZ = np.cumsum(dd)
-
-    numInterfaces = numbLayers + 1
-
-    # Vectorized over interfaces
-    delta_beta = beta[1:] - beta[:-1]
-    z_norm = (zz[:, np.newaxis] - ZZ[np.newaxis, :]) / (np.sqrt(2) * sig)
-    absorption = (beta[0] + np.sum(delta_beta * (1 + scipy.special.erf(z_norm)) / 2, axis=1)) * 0.00000001
-
-    return absorption
+    return xrr_beta(params, zz, zero_roughness=True)
 
 
 ###########################################################################################################################################################
@@ -347,7 +294,7 @@ def performFit(dataFile, params, fitFunc=xrr_parratt_fit, method='differential_e
                qmin=0, qmax=1, plot=1, report=True, save=True, outputName="foo", weight=0, rrfPlot=False,
                doConv=0):
 
-    close('all')
+    plt.close('all')
 
     data = np.loadtxt(dataFile)
 
@@ -364,24 +311,24 @@ def performFit(dataFile, params, fitFunc=xrr_parratt_fit, method='differential_e
     ii_cut = ii[(qq > qmin) & (qq < qmax)]
     ee_cut = ee[(qq > qmin) & (qq < qmax)]
 
-    start = timeit.default_timer()
+    start = time.perf_counter()
 
     minner = Minimizer(fitFunc, params, fcn_args=(qq_cut, ii_cut, weight, ee_cut, doConv), nan_policy='omit')
     result = minner.minimize(method=method)
 
-    stop = timeit.default_timer()
-    print("time for fit: %0.2f s" % (stop - start))
+    stop = time.perf_counter()
+    print(f"time for fit: {stop - start:.2f} s")
 
     # calculate final result
     if fitFunc == xrr_parratt_fit:
         final = xrr_parratt_calc(result.params, qq_cut, doConv=doConv)
-    if fitFunc == xrr_master_refractionCorrected_fit:
+    elif fitFunc == xrr_master_refractionCorrected_fit:
         final = xrr_master_refractionCorrected_calc(result.params, qq_cut, doConv=doConv)
 
     qq_plot = np.arange(0, np.max(qq), 0.001)
     if fitFunc == xrr_parratt_fit:
         ii_plot = xrr_parratt_calc(result.params, qq_plot, doConv=doConv)
-    if fitFunc == xrr_master_refractionCorrected_fit:
+    elif fitFunc == xrr_master_refractionCorrected_fit:
         ii_plot = xrr_master_refractionCorrected_calc(result.params, qq_plot, doConv=doConv)
 
     # write error report
@@ -392,10 +339,10 @@ def performFit(dataFile, params, fitFunc=xrr_parratt_fit, method='differential_e
 
         LBLU = "#ccf2ff"; YEL = "#f5f794"
         plt.rc("font", size=14); plt.rc('legend', **{'fontsize': 14}); plt.rcParams['font.family'] = 'M+ 2c'
-        plt.rcParams['xtick.direction'] = 'in'; plt.rcParams['ytick.direction'] = 'in'; rcParams['figure.figsize'] = 9.3, 6
+        plt.rcParams['xtick.direction'] = 'in'; plt.rcParams['ytick.direction'] = 'in'; plt.rcParams['figure.figsize'] = 9.3, 6
         plt.rcParams['axes.edgecolor'] = 'r'
         plt.rcParams["figure.facecolor"] = YEL
-        fig = figure(facecolor=YEL)
+        fig = plt.figure(facecolor=YEL)
 
         gs = gridspec.GridSpec(1, 1)
         ax1 = plt.subplot(gs[0, 0])
@@ -410,17 +357,12 @@ def performFit(dataFile, params, fitFunc=xrr_parratt_fit, method='differential_e
         ax1.yaxis.set_ticks_position('both'); ax1.xaxis.set_ticks_position('both')
 
         if rrfPlot:
-            rrf = abs((qq - sqrt(qq**2 - (qc_factor*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)) /
-                      (qq + np.sqrt(qq**2 - (qc_factor*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)))**2
+            rrf = _fresnel_rrf(qq, result.params)
             ax1.semilogy(qq, ii/rrf, linestyle='none', marker='o', color='b', zorder=-32, markersize=3)
             if ebar == 1:
                 ax1.errorbar(qq, ii/rrf, yerr=ee/rrf, linestyle='None', color='b', capsize=0, elinewidth=1)
-            rrf = abs((qq_plot - np.sqrt(qq_plot**2 - (qc_factor*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)) /
-                      (qq_plot + np.sqrt(qq_plot**2 - (qc_factor*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)))**2
-            ax1.semilogy(qq_plot, ii_plot/rrf, color='k', linewidth=1)
-            rrf = abs((qq_cut - np.sqrt(qq_cut**2 - (qc_factor*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)) /
-                      (qq_cut + np.sqrt(qq_cut**2 - (qc_factor*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)))**2
-            ax1.semilogy(qq_cut, final/rrf, color='r', linewidth=1)
+            ax1.semilogy(qq_plot, ii_plot/_fresnel_rrf(qq_plot, result.params), color='k', linewidth=1)
+            ax1.semilogy(qq_cut, final/_fresnel_rrf(qq_cut, result.params), color='r', linewidth=1)
         else:
             ax1.semilogy(qq, ii, linestyle='none', marker='o', color='b', zorder=-32, markersize=3)
             if ebar == 1:
@@ -442,19 +384,19 @@ def performFit(dataFile, params, fitFunc=xrr_parratt_fit, method='differential_e
             bestFitVary.append(str(result.params[(item[0])].vary))
 
         xrrOutput = np.column_stack((qq_plot, ii_plot))
-        np.savetxt("%s_%s_fit.r" % (outputName, st), xrrOutput)
+        np.savetxt(f"{outputName}_{st}_fit.r", xrrOutput)
 
         paramOutput = np.column_stack((bestFitParam, bestFitParam_name, bestFitVary))
-        np.savetxt("%s_%s_fit.fitParams" % (outputName, st), paramOutput, fmt="%s")
+        np.savetxt(f"{outputName}_{st}_fit.fitParams", paramOutput, fmt="%s")
 
         LBLU = "#ccf2ff"; YEL = "#f5f794"
         plt.rc("font", size=14); plt.rc('legend', **{'fontsize': 14}); plt.rcParams['font.family'] = 'M+ 2c'
-        plt.rcParams['xtick.direction'] = 'in'; plt.rcParams['ytick.direction'] = 'in'; rcParams['figure.figsize'] = 9.3, 6
+        plt.rcParams['xtick.direction'] = 'in'; plt.rcParams['ytick.direction'] = 'in'; plt.rcParams['figure.figsize'] = 9.3, 6
         plt.rcParams['axes.edgecolor'] = 'r'
         plt.rcParams["figure.facecolor"] = YEL
-        fig = figure(facecolor=YEL)
+        fig = plt.figure(facecolor=YEL)
 
-        fig.suptitle("data file: %s" % dataFile, fontsize=14, y=1.0025)
+        fig.suptitle(f"data file: {dataFile}", fontsize=14, y=1.0025)
 
         gs = gridspec.GridSpec(2, 2)
         ax1 = plt.subplot(gs[0, 0])
@@ -474,17 +416,12 @@ def performFit(dataFile, params, fitFunc=xrr_parratt_fit, method='differential_e
             ax.set_facecolor(LBLU)
 
         if rrfPlot:
-            rrf = abs((qq - sqrt(qq**2 - (qc_factor*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)) /
-                      (qq + np.sqrt(qq**2 - (qc_factor*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)))**2
+            rrf = _fresnel_rrf(qq, result.params)
             ax1.semilogy(qq, ii/rrf, linestyle='none', marker='o', color='b', zorder=-32, markersize=3)
             if ebar == 1:
                 ax1.errorbar(qq, ii/rrf, yerr=ee/rrf, linestyle='None', color='b', capsize=0, elinewidth=1)
-            rrf = abs((qq_plot - np.sqrt(qq_plot**2 - (qc_factor*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)) /
-                      (qq_plot + np.sqrt(qq_plot**2 - (qc_factor*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)))**2
-            ax1.semilogy(qq_plot, ii_plot/rrf, color='k', linewidth=1)
-            rrf = abs((qq_cut - np.sqrt(qq_cut**2 - (qc_factor*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)) /
-                      (qq_cut + np.sqrt(qq_cut**2 - (qc_factor*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)))**2
-            ax1.semilogy(qq_cut, final/rrf, color='r', linewidth=1)
+            ax1.semilogy(qq_plot, ii_plot/_fresnel_rrf(qq_plot, result.params), color='k', linewidth=1)
+            ax1.semilogy(qq_cut, final/_fresnel_rrf(qq_cut, result.params), color='r', linewidth=1)
         else:
             ax1.semilogy(qq, ii, linestyle='none', marker='o', color='b', zorder=-32, markersize=3)
             if ebar == 1:
@@ -492,15 +429,15 @@ def performFit(dataFile, params, fitFunc=xrr_parratt_fit, method='differential_e
             ax1.semilogy(qq_plot, ii_plot, color='k', linewidth=1)
             ax1.semilogy(qq_cut, final, color='r', linewidth=1)
 
-        ax1.annotate("q_min = %s\nq_max = %s" % (qmin, qmax), xy=(0.8, 0.8), xycoords='axes fraction', fontsize=8)
+        ax1.annotate(f"q_min = {qmin}\nq_max = {qmax}", xy=(0.8, 0.8), xycoords='axes fraction', fontsize=8)
 
         ax2.set_ylabel("$\mathregular{\\rho}$ (e/\u00c5\u00b3)")
         ax2.set_xlabel("z (\u00c5)")
 
         DD = 0
         for nn in range(int(result.params['numbLayers'].value)):
-            DD += result.params['layer%s_dd' % nn].value
-            topLayer_RR = result.params['layer%s_sig' % nn].value
+            DD += result.params[f'layer{nn}_dd'].value
+            topLayer_RR = result.params[f'layer{nn}_sig'].value
         sub_RR = result.params['sub_sig'].value
         zz = np.arange(0-7*topLayer_RR, DD+7*sub_RR, 0.01)
 
@@ -508,20 +445,20 @@ def performFit(dataFile, params, fitFunc=xrr_parratt_fit, method='differential_e
         dens_zeroRoughness = xrr_eDens_zeroRoughness(result.params, zz)
 
         edOutput = np.column_stack((zz, dens))
-        np.savetxt("%s_%s_fit.ed" % (outputName, st), edOutput)
+        np.savetxt(f"{outputName}_{st}_fit.ed", edOutput)
 
         nedOutput = np.column_stack((zz, dens_zeroRoughness))
-        np.savetxt("%s_%s_fit.ned" % (outputName, st), nedOutput)
+        np.savetxt(f"{outputName}_{st}_fit.ned", nedOutput)
 
         if fitFunc == xrr_parratt_fit:
             beta_z = xrr_beta(result.params, zz)
             beta_zeroRoughness = xrr_beta_zeroRoughness(result.params, zz)
 
             betaOutput = np.column_stack((zz, beta_z))
-            np.savetxt("%s_%s_fit.beta" % (outputName, st), betaOutput)
+            np.savetxt(f"{outputName}_{st}_fit.beta", betaOutput)
 
             nbetaOutput = np.column_stack((zz, beta_zeroRoughness))
-            np.savetxt("%s_%s_fit.nbeta" % (outputName, st), nbetaOutput)
+            np.savetxt(f"{outputName}_{st}_fit.nbeta", nbetaOutput)
 
         ax2.plot(zz, dens, color='k', linewidth=1)
         ax2.plot(zz, dens_zeroRoughness, color='k', linewidth=1, linestyle='dashed')
@@ -532,7 +469,7 @@ def performFit(dataFile, params, fitFunc=xrr_parratt_fit, method='differential_e
         gs.tight_layout(fig)
 
         if save:
-            savefig("%s_%s_fit.png" % (outputName, st), bbox_inches='tight', facecolor=YEL, dpi=600)
+            plt.savefig(f"{outputName}_{st}_fit.png", bbox_inches='tight', facecolor=YEL, dpi=600)
 
 
 ###########################################################################################################################################################
@@ -548,7 +485,7 @@ def performFit_mc(dataFile, params, fitFunc=xrr_parratt_fit, method='differentia
                   qmin=0, qmax=1, plot=1, report=True,
                   outputName="foo", weight=0, rrfPlot=False, doConv=0, NN=10):
 
-    close('all')
+    plt.close('all')
 
     data = np.loadtxt(dataFile)
 
@@ -571,12 +508,12 @@ def performFit_mc(dataFile, params, fitFunc=xrr_parratt_fit, method='differentia
 
     LBLU = "#ccf2ff"; YEL = "#f5f794"
     plt.rc("font", size=14); plt.rc('legend', **{'fontsize': 14}); plt.rcParams['font.family'] = 'M+ 2c'
-    plt.rcParams['xtick.direction'] = 'in'; plt.rcParams['ytick.direction'] = 'in'; rcParams['figure.figsize'] = 9.3, 6
+    plt.rcParams['xtick.direction'] = 'in'; plt.rcParams['ytick.direction'] = 'in'; plt.rcParams['figure.figsize'] = 9.3, 6
     plt.rcParams['axes.edgecolor'] = 'r'
     plt.rcParams["figure.facecolor"] = YEL
-    fig = figure(facecolor=YEL)
+    fig = plt.figure(facecolor=YEL)
 
-    fig.suptitle("data file: %s" % dataFile, fontsize=14, y=1.0025)
+    fig.suptitle(f"data file: {dataFile}", fontsize=14, y=1.0025)
 
     gs = gridspec.GridSpec(2, 2)
     ax1 = plt.subplot(gs[0, 0])
@@ -594,7 +531,7 @@ def performFit_mc(dataFile, params, fitFunc=xrr_parratt_fit, method='differentia
         ax.tick_params(which='both', color='r')
         ax.set_facecolor(LBLU)
 
-    ax1.annotate("q_min = %s\nq_max = %s" % (qmin, qmax), xy=(0.8, 0.8), xycoords='axes fraction', fontsize=8)
+    ax1.annotate(f"q_min = {qmin}\nq_max = {qmax}", xy=(0.8, 0.8), xycoords='axes fraction', fontsize=8)
 
     ax2.set_ylabel("$\mathregular{\\rho}$ (e/\u00c5\u00b3)")
     ax2.set_xlabel("z (\u00c5)")
@@ -613,8 +550,8 @@ def performFit_mc(dataFile, params, fitFunc=xrr_parratt_fit, method='differentia
     DD = 0
     topLayer_RR = 0  # default for numbLayers == 0
     for mm in range(int(result0.params['numbLayers'].value)):
-        DD += result0.params['layer%s_dd' % mm].value
-        topLayer_RR = result0.params['layer%s_sig' % mm].value
+        DD += result0.params[f'layer{mm}_dd'].value
+        topLayer_RR = result0.params[f'layer{mm}_sig'].value
     sub_RR = result0.params['sub_sig'].value
     zz = np.arange(0 - 7 * topLayer_RR, DD + 7 * sub_RR, 0.1)
 
@@ -641,7 +578,7 @@ def performFit_mc(dataFile, params, fitFunc=xrr_parratt_fit, method='differentia
         if fitFunc == xrr_parratt_fit:
             final[nn, :] = xrr_parratt_calc(result.params, qq_cut, doConv=doConv)
             ii_plot[nn, :] = xrr_parratt_calc(result.params, qq_plot, doConv=doConv)
-        if fitFunc == xrr_master_refractionCorrected_fit:
+        elif fitFunc == xrr_master_refractionCorrected_fit:
             final[nn, :] = xrr_master_refractionCorrected_calc(result.params, qq_cut, doConv=doConv)
             ii_plot[nn, :] = xrr_master_refractionCorrected_calc(result.params, qq_plot, doConv=doConv)
 
@@ -660,17 +597,12 @@ def performFit_mc(dataFile, params, fitFunc=xrr_parratt_fit, method='differentia
 
         if rrfPlot:
             if nn == 0:
-                rrf = abs((qq - sqrt(qq**2 - (qc_factor*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)) /
-                          (qq + np.sqrt(qq**2 - (qc_factor*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)))**2
+                rrf = _fresnel_rrf(qq, result.params)
                 ax1.semilogy(qq, ii/rrf, linestyle='none', marker='o', color='b', zorder=-32, markersize=3)
                 if ebar == 1:
                     ax1.errorbar(qq, ii/rrf, yerr=ee/rrf, linestyle='None', color='b', capsize=0, elinewidth=1)
-            rrf = abs((qq_plot - np.sqrt(qq_plot**2 - (qc_factor*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)) /
-                      (qq_plot + np.sqrt(qq_plot**2 - (qc_factor*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)))**2
-            ax1.semilogy(qq_plot, ii_plot[nn, :]/rrf, color='k', linewidth=1)
-            rrf = abs((qq_cut - np.sqrt(qq_cut**2 - (qc_factor*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)) /
-                      (qq_cut + np.sqrt(qq_cut**2 - (qc_factor*np.sqrt(result.params['sub_rho'].value - result.params['pre_rho'].value))**2)))**2
-            ax1.semilogy(qq_cut, final[nn, :]/rrf, color='r', linewidth=1)
+            ax1.semilogy(qq_plot, ii_plot[nn, :]/_fresnel_rrf(qq_plot, result.params), color='k', linewidth=1)
+            ax1.semilogy(qq_cut, final[nn, :]/_fresnel_rrf(qq_cut, result.params), color='r', linewidth=1)
         else:
             if nn == 0:
                 ax1.semilogy(qq, ii, linestyle='none', marker='o', color='b', zorder=-32, markersize=3)
@@ -686,22 +618,22 @@ def performFit_mc(dataFile, params, fitFunc=xrr_parratt_fit, method='differentia
 
     # Save output files
     xrrOutput = np.vstack((qq_plot, ii_plot))
-    np.savetxt("%s_%s_fit_mc.r" % (outputName, st), xrrOutput.T)
+    np.savetxt(f"{outputName}_{st}_fit_mc.r", xrrOutput.T)
 
     edOutput = np.vstack((zz, dens))
-    np.savetxt("%s_%s_fit_mc.ed" % (outputName, st), edOutput.T)
+    np.savetxt(f"{outputName}_{st}_fit_mc.ed", edOutput.T)
 
     nedOutput = np.vstack((zz, dens_zeroRoughness))
-    np.savetxt("%s_%s_fit_mc.ned" % (outputName, st), nedOutput.T)
+    np.savetxt(f"{outputName}_{st}_fit_mc.ned", nedOutput.T)
 
     betaOutput = np.vstack((zz, beta))
-    np.savetxt("%s_%s_fit_mc.beta" % (outputName, st), betaOutput.T)
+    np.savetxt(f"{outputName}_{st}_fit_mc.beta", betaOutput.T)
 
     nbetaOutput = np.vstack((zz, beta_zeroRoughness))
-    np.savetxt("%s_%s_fit_mc.nbeta" % (outputName, st), nbetaOutput.T)
+    np.savetxt(f"{outputName}_{st}_fit_mc.nbeta", nbetaOutput.T)
 
     paramOutput = np.vstack((bestFitParamsList, bestFitParam_name, bestFitVary))
-    np.savetxt("%s_%s_fit_mc.fitParams" % (outputName, st), paramOutput.T, fmt="%s")
+    np.savetxt(f"{outputName}_{st}_fit_mc.fitParams", paramOutput.T, fmt="%s")
 
     bestFitParamsList_mean = np.mean(bestFitParamsList, axis=0)
     bestFitParamsList_std = np.std(bestFitParamsList, axis=0)
@@ -711,7 +643,7 @@ def performFit_mc(dataFile, params, fitFunc=xrr_parratt_fit, method='differentia
                                   np.around(bestFitParamsList_std, decimals=3)))
     paramOutputStats = paramOutputStats.T
 
-    np.savetxt("%s_%s_fit_mc.fitParamsStats" % (outputName, st),
+    np.savetxt(f"{outputName}_{st}_fit_mc.fitParamsStats",
                np.vstack((bestFitParamsList_mean, bestFitParamsList_std, bestFitParam_name)).T, fmt="%s")
 
     ax3.set_xticks([]); ax3.set_yticks([])
@@ -727,7 +659,7 @@ def performFit_mc(dataFile, params, fitFunc=xrr_parratt_fit, method='differentia
 
     gs.tight_layout(fig)
 
-    savefig("%s_%s_fit_mc.png" % (outputName, st), bbox_inches='tight', facecolor=YEL, dpi=600)
+    plt.savefig(f"{outputName}_{st}_fit_mc.png", bbox_inches='tight', facecolor=YEL, dpi=600)
 
 
 ###########################################################################################################################################################
@@ -788,12 +720,12 @@ def analyze_mc(file, bins=20):
 
     ### prepare figure
     plt.rc("font", size=10); plt.rcParams['font.family'] = 'M+ 2c'
-    plt.rcParams['xtick.direction'] = 'in'; plt.rcParams['ytick.direction'] = 'in'; rcParams['figure.figsize'] = 9.3, 6
+    plt.rcParams['xtick.direction'] = 'in'; plt.rcParams['ytick.direction'] = 'in'; plt.rcParams['figure.figsize'] = 9.3, 6
     plt.rcParams['axes.edgecolor'] = 'r'
 
     ### plot cornerplot
-    close('all')
+    plt.close('all')
     figure = corner.corner(paras.T, labels=parasName, bins=bins)
 
     ### save figure
-    savefig("%s.analysis.png" % file, bbox_inches='tight', dpi=600)
+    plt.savefig(f"{file}.analysis.png", bbox_inches='tight', dpi=600)
