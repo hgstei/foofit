@@ -6,7 +6,7 @@
 #                  Institute of Physical Chemistry, RWTH Aachen University
 #e-mail          : h.steinrueck@fz-juelich.de
 #date            : 08/18/2018 (updated 02/2026)
-#version         : 0.2.4
+#version         : 0.2.5
 #usage           : best to use with jupyter notebook
 #notes           : I would call this a beta version, needs to be tested by colleagues
 #                  The code was cross-checked with genx
