@@ -4,7 +4,7 @@ X-ray reflectivity (XRR) fitting library using the Parratt recursion formalism a
 
 ## Installation
 
-Requires <a href="https://git-scm.com/downloads" target="_blank">git</a> to be installed.
+Requires [git](https://git-scm.com/downloads) to be installed.
 
 ```bash
 pip install git+https://github.com/hgstei/foofit.git
