@@ -336,7 +336,7 @@ def performFit(dataFile, params, fitFunc=xrr_parratt_fit, method='differential_e
     if plot == 1:
 
         LBLU = "#ccf2ff"; YEL = "#f5f794"
-        plt.rc("font", size=14); plt.rc('legend', **{'fontsize': 14}); plt.rcParams['font.family'] = 'M+ 2c'
+        plt.rc("font", size=14); plt.rc('legend', **{'fontsize': 14}); plt.rcParams['font.family'] = 'Arial'
         plt.rcParams['xtick.direction'] = 'in'; plt.rcParams['ytick.direction'] = 'in'; plt.rcParams['figure.figsize'] = 9.3, 6
         plt.rcParams['axes.edgecolor'] = 'r'
         plt.rcParams["figure.facecolor"] = YEL
@@ -388,7 +388,7 @@ def performFit(dataFile, params, fitFunc=xrr_parratt_fit, method='differential_e
         np.savetxt(f"{outputName}_{st}_fit.fitParams", paramOutput, fmt="%s")
 
         LBLU = "#ccf2ff"; YEL = "#f5f794"
-        plt.rc("font", size=14); plt.rc('legend', **{'fontsize': 14}); plt.rcParams['font.family'] = 'M+ 2c'
+        plt.rc("font", size=14); plt.rc('legend', **{'fontsize': 14}); plt.rcParams['font.family'] = 'Arial'
         plt.rcParams['xtick.direction'] = 'in'; plt.rcParams['ytick.direction'] = 'in'; plt.rcParams['figure.figsize'] = 9.3, 6
         plt.rcParams['axes.edgecolor'] = 'r'
         plt.rcParams["figure.facecolor"] = YEL
@@ -505,7 +505,7 @@ def performFit_mc(dataFile, params, fitFunc=xrr_parratt_fit, method='differentia
     ii_cut_random = ii_cut[np.newaxis, :] + noise
 
     LBLU = "#ccf2ff"; YEL = "#f5f794"
-    plt.rc("font", size=14); plt.rc('legend', **{'fontsize': 14}); plt.rcParams['font.family'] = 'M+ 2c'
+    plt.rc("font", size=14); plt.rc('legend', **{'fontsize': 14}); plt.rcParams['font.family'] = 'Arial'
     plt.rcParams['xtick.direction'] = 'in'; plt.rcParams['ytick.direction'] = 'in'; plt.rcParams['figure.figsize'] = 9.3, 6
     plt.rcParams['axes.edgecolor'] = 'r'
     plt.rcParams["figure.facecolor"] = YEL
@@ -720,7 +720,7 @@ def analyze_mc(file, bins=20):
     parasName = parasName[parasVary == 'True']
 
     ### prepare figure
-    plt.rc("font", size=10); plt.rcParams['font.family'] = 'M+ 2c'
+    plt.rc("font", size=10); plt.rcParams['font.family'] = 'Arial'
     plt.rcParams['xtick.direction'] = 'in'; plt.rcParams['ytick.direction'] = 'in'; plt.rcParams['figure.figsize'] = 9.3, 6
     plt.rcParams['axes.edgecolor'] = 'r'
 
